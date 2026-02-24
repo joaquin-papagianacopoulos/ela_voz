@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VOZ — Comunicador ELA</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/webgazer/2.0.1/webgazer.min.js"></script>
+<script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Playfair+Display:wght@400;700&display=swap');
 
@@ -745,45 +745,110 @@ function smoothGaze(x, y) {
 
 function initWebGazer(callback) {
   showToast('Iniciando cámara...');
-  try {
-    webgazer
-      .setRegression('ridge')
-      .setGazeListener((data) => {
-        if (!data) return;
 
-        const {x, y} = smoothGaze(data.x, data.y);
-
-        // Actualizar cursor
-        const cursor = document.getElementById('gaze-cursor');
-        cursor.style.left = x + 'px';
-        cursor.style.top  = y + 'px';
-
-        // Durante calibración: soplo activa el punto
-        if (calibBreath) return;
-
-        // Durante escritura
-        if (!gazeReady) return;
-
-        const el    = document.elementFromPoint(x, y);
-        const target = el
-          ? (el.closest('.key') || el.closest('.ctrl-btn') || el.closest('.suggestion-btn'))
-          : null;
-
-        if (target) startDwell(target);
-        else        cancelDwell();
-      })
-      .begin();
-
-    webgazer.showVideoPreview(true).showPredictionPoints(false);
-    document.getElementById('gaze-cursor').style.display = 'block';
-
-    if (callback) setTimeout(callback, 1500);
-  } catch(e) {
-    showToast('Cámara no disponible. Usando modo mouse.');
-    console.error(e);
-    inputMode = 'mouse';
-    startMouseMode();
+  // Primero verificar que WebGazer cargó
+  if (typeof webgazer === 'undefined') {
+    showPermanentError('WebGazer no cargó. Verificá tu conexión a internet y recargá la página.');
+    return;
   }
+
+  // Verificar acceso a cámara primero, de forma independiente
+  navigator.mediaDevices.getUserMedia({ video: true })
+    .then(testStream => {
+      // Cámara accesible, cerrar stream de prueba
+      testStream.getTracks().forEach(t => t.stop());
+
+      // Ahora iniciar WebGazer
+      try {
+        webgazer
+          .setRegression('ridge')
+          .setGazeListener((data) => {
+            if (!data) return;
+
+            const {x, y} = smoothGaze(data.x, data.y);
+
+            const cursor = document.getElementById('gaze-cursor');
+            cursor.style.left = x + 'px';
+            cursor.style.top  = y + 'px';
+
+            if (calibBreath) return;
+            if (!gazeReady)  return;
+
+            const el = document.elementFromPoint(x, y);
+            const target = el
+              ? (el.closest('.key') || el.closest('.ctrl-btn') || el.closest('.suggestion-btn'))
+              : null;
+
+            if (target) startDwell(target);
+            else        cancelDwell();
+          })
+          .begin()
+          .then(() => {
+            webgazer.showVideoPreview(true).showPredictionPoints(false);
+            document.getElementById('gaze-cursor').style.display = 'block';
+            document.getElementById('pill-eye').classList.add('active');
+            showToast('✓ Cámara activa');
+            if (callback) setTimeout(callback, 800);
+          })
+          .catch(err => {
+            showPermanentError('WebGazer falló al iniciar: ' + err.message);
+            console.error('WebGazer .begin() error:', err);
+          });
+
+      } catch(e) {
+        showPermanentError('Error interno de WebGazer: ' + e.message);
+        console.error('WebGazer catch:', e);
+      }
+    })
+    .catch(err => {
+      // Error real de cámara — mostrar mensaje específico
+      let msg = 'Error de cámara: ';
+      if (err.name === 'NotAllowedError')  msg += 'Permiso denegado. Hacé clic en el candado de la barra de dirección y permitir cámara.';
+      else if (err.name === 'NotFoundError')    msg += 'No se encontró cámara en este dispositivo.';
+      else if (err.name === 'NotReadableError') msg += 'La cámara está siendo usada por otra app. Cerrala y recargá.';
+      else msg += err.name + ' — ' + err.message;
+      showPermanentError(msg);
+      console.error('getUserMedia error:', err);
+    });
+}
+
+function showPermanentError(msg) {
+  // Mostrar error visible en el setup panel
+  let errEl = document.getElementById('gaze-error');
+  if (!errEl) {
+    errEl = document.createElement('div');
+    errEl.id = 'gaze-error';
+    errEl.style.cssText = `
+      background: rgba(255,107,107,0.12);
+      border: 1px solid rgba(255,107,107,0.4);
+      border-radius: 10px;
+      padding: 14px 16px;
+      font-size: 0.78rem;
+      color: #ff9a9a;
+      line-height: 1.5;
+      margin-top: 16px;
+      text-align: left;
+    `;
+    // Insertar en el overlay de calibración o en el body
+    document.getElementById('calibration-overlay').appendChild(errEl);
+    document.getElementById('calibration-overlay').style.display = 'flex';
+    document.getElementById('calibration-overlay').style.alignItems = 'center';
+    document.getElementById('calibration-overlay').style.justifyContent = 'center';
+    document.getElementById('calib-header').style.display = 'none';
+    document.getElementById('calib-arena').style.display  = 'none';
+  }
+  errEl.innerHTML = `
+    <strong style="color:#ff6b6b">⚠ ${msg}</strong>
+    <br><br>
+    <span style="color:var(--text-dim)">Alternativas:</span><br>
+    • Asegurate de estar en <strong>Chrome</strong> o Edge (Firefox puede tener problemas con WebGazer)<br>
+    • La página debe estar en <strong>https://</strong> o <strong>localhost</strong> — los permisos de cámara no funcionan en file://<br>
+    • En GitHub Pages va a funcionar bien (https automático)<br><br>
+    <button onclick="document.getElementById('calibration-overlay').style.display='none';selectMode('mouse');startMouseMode();"
+      style="background:var(--surface2);border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:8px 16px;color:var(--text);font-family:DM Mono,monospace;font-size:0.75rem;cursor:pointer;margin-top:4px">
+      Usar modo mouse por ahora
+    </button>
+  `;
 }
 
 // ══════════════════════════════════════════════════════
