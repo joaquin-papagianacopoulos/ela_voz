@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VOZ — Comunicador ELA</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/webgazer/2.0.1/webgazer.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Playfair+Display:wght@400;700&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --surface2: #1a1a24;
+    --accent: #7fffb2;
+    --accent2: #4fc3f7;
+    --text: #e8e8f0;
+    --text-dim: #6a6a80;
+    --danger: #ff6b6b;
+    --key-bg: #1e1e2e;
+    --key-hover: #2a2a3e;
+    --key-active: #7fffb2;
+    --dwell-time: 1200ms;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+    user-select: none;
+  }
+
+  /* Fondo animado sutil */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 60% at 20% 10%, rgba(127,255,178,0.04) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 40% at 80% 80%, rgba(79,195,247,0.04) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  #app {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    min-height: 100vh;
+    padding: 16px;
+    gap: 14px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  /* HEADER */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 4px;
+  }
+
+  .logo {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+  }
+  .logo span { color: var(--text-dim); font-size: 0.9rem; font-family: 'DM Mono', monospace; font-weight: 300; margin-left: 10px; }
+
+  .status-bar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: var(--surface);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .status-pill:hover { border-color: var(--accent); }
+  .status-pill.active { border-color: var(--accent); background: rgba(127,255,178,0.08); color: var(--accent); }
+  .status-pill.active .dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: all 0.3s;
+  }
+
+  /* DISPLAY de texto */
+  #text-display {
+    background: var(--surface);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    padding: 20px 24px;
+    min-height: 90px;
+    font-size: 1.5rem;
+    line-height: 1.5;
+    color: var(--text);
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    word-break: break-word;
+    position: relative;
+    overflow: hidden;
+  }
+
+  #text-display::after {
+    content: '|';
+    color: var(--accent);
+    animation: blink 1s step-end infinite;
+    font-weight: 100;
+  }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  .display-placeholder {
+    color: var(--text-dim);
+    font-size: 1rem;
+    position: absolute;
+    top: 50%;
+    left: 24px;
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
+
+  /* SUGERENCIAS */
+  #suggestions {
+    display: flex;
+    gap: 8px;
+    height: 40px;
+    align-items: center;
+  }
+
+  .suggestion-btn {
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid rgba(79,195,247,0.3);
+    background: rgba(79,195,247,0.05);
+    color: var(--accent2);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .suggestion-btn:hover, .suggestion-btn.gazing {
+    background: rgba(79,195,247,0.15);
+    border-color: var(--accent2);
+  }
+
+  /* TECLADO */
+  #keyboard-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .keyboard-row {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+  }
+
+  .key {
+    position: relative;
+    background: var(--key-bg);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 1.1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    overflow: hidden;
+    flex: 1;
+    min-width: 42px;
+    height: 52px;
+    max-width: 60px;
+  }
+
+  .key.wide { max-width: 120px; flex: 2; font-size: 0.75rem; letter-spacing: 0.06em; }
+  .key.wider { max-width: 200px; flex: 4; }
+  .key.action { border-color: rgba(127,255,178,0.2); color: var(--accent); }
+  .key.danger-key { border-color: rgba(255,107,107,0.2); color: var(--danger); }
+
+  .key:hover, .key.gazing {
+    background: var(--key-hover);
+    border-color: rgba(127,255,178,0.4);
+    transform: translateY(-1px);
+  }
+
+  .key.activated {
+    background: rgba(127,255,178,0.2);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* Barra de progreso dwell */
+  .dwell-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 0 0 10px 10px;
+    transition: width linear;
+    box-shadow: 0 0 8px var(--accent);
+  }
+
+  /* CONTROLES inferiores */
+  #controls {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    padding-bottom: 8px;
+    flex-wrap: wrap;
+  }
+
+  .ctrl-btn {
+    padding: 10px 22px;
+    border-radius: 24px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.8rem;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+  }
+  .ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .ctrl-btn.speak-btn {
+    background: rgba(127,255,178,0.1);
+    border-color: rgba(127,255,178,0.4);
+    color: var(--accent);
+    font-weight: 500;
+    padding: 10px 32px;
+  }
+  .ctrl-btn.speak-btn:hover { background: rgba(127,255,178,0.2); }
+
+  /* BREATH indicator */
+  #breath-indicator {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: 2px solid rgba(79,195,247,0.3);
+    background: var(--surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    transition: all 0.1s;
+    z-index: 100;
+  }
+  #breath-indicator.active {
+    border-color: var(--accent2);
+    background: rgba(79,195,247,0.15);
+    box-shadow: 0 0 20px rgba(79,195,247,0.4);
+    transform: scale(1.15);
+  }
+
+  /* PANEL de setup */
+  #setup-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    backdrop-filter: blur(8px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #setup-panel {
+    background: var(--surface);
+    border: 1px solid rgba(127,255,178,0.2);
+    border-radius: 24px;
+    padding: 40px;
+    max-width: 460px;
+    width: 90%;
+    text-align: center;
+  }
+
+  #setup-panel h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: 2rem;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+
+  #setup-panel p {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    line-height: 1.6;
+    margin-bottom: 28px;
+  }
+
+  .setup-option {
+    background: var(--surface2);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .setup-option:hover { border-color: var(--accent); background: rgba(127,255,178,0.05); }
+  .setup-option h3 { font-size: 0.9rem; color: var(--text); margin-bottom: 4px; }
+  .setup-option p { font-size: 0.75rem; color: var(--text-dim); margin: 0; }
+
+  .setup-start {
+    display: block;
+    width: 100%;
+    padding: 14px;
+    margin-top: 20px;
+    border-radius: 12px;
+    border: none;
+    background: var(--accent);
+    color: var(--bg);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.9rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .setup-start:hover { opacity: 0.85; }
+
+  /* MODE indicator */
+  #mode-badge {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 14px;
+    border-radius: 20px;
+    background: rgba(127,255,178,0.1);
+    border: 1px solid rgba(127,255,178,0.3);
+    font-size: 0.7rem;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  #mode-badge.visible { opacity: 1; }
+
+  /* Gaze cursor */
+  #gaze-cursor {
+    position: fixed;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid rgba(127,255,178,0.6);
+    background: rgba(127,255,178,0.15);
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    z-index: 999;
+    transition: left 0.05s, top 0.05s;
+    display: none;
+  }
+
+  .key-freq { font-size: 0.55rem; position: absolute; bottom: 3px; right: 5px; color: var(--text-dim); opacity: 0.5; }
+
+  /* Toast */
+  #toast {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--surface2);
+    border: 1px solid rgba(127,255,178,0.3);
+    border-radius: 12px;
+    padding: 10px 20px;
+    font-size: 0.82rem;
+    color: var(--accent);
+    opacity: 0;
+    transition: all 0.3s;
+    z-index: 300;
+    white-space: nowrap;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- Gaze cursor -->
+<div id="gaze-cursor"></div>
+
+<!-- Breath indicator -->
+<div id="breath-indicator" title="Soplo detectado">🌬️</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- Mode badge -->
+<div id="mode-badge">Modo ratón</div>
+
+<!-- Setup overlay -->
+<div id="setup-overlay">
+  <div id="setup-panel">
+    <h2>VOZ</h2>
+    <p>Comunicador adaptado para personas con ELA.<br>Elegí cómo querés controlar el teclado.</p>
+
+    <div class="setup-option" id="opt-gaze" onclick="selectMode('gaze')">
+      <h3>👁 Seguimiento ocular (webcam)</h3>
+      <p>Mirá las teclas para seleccionarlas. Necesita calibración inicial. Gratis con tu webcam.</p>
+    </div>
+
+    <div class="setup-option" id="opt-mouse" onclick="selectMode('mouse')">
+      <h3>🖱 Mouse / touchpad</h3>
+      <p>Para cuidadores o para probar el sistema. Sin configuración adicional.</p>
+    </div>
+
+    <div class="setup-option" id="opt-switch" onclick="selectMode('switch')">
+      <h3>⌨️ Barrido con teclado / switch</h3>
+      <p>Usa ESPACIO o cualquier tecla como pulsador. Barrido automático de teclas.</p>
+    </div>
+
+    <button class="setup-start" id="start-btn" onclick="startApp()" disabled style="opacity:0.4">
+      Iniciar →
+    </button>
+  </div>
+</div>
+
+<!-- App principal -->
+<div id="app">
+  <header>
+    <div class="logo">VOZ <span>comunicador ELA v0.1</span></div>
+    <div class="status-bar">
+      <div class="status-pill" id="pill-mic" onclick="toggleMic()">
+        <div class="dot"></div>
+        <span>Soplo</span>
+      </div>
+      <div class="status-pill" id="pill-tts">
+        <div class="dot" style="background:var(--accent);box-shadow:0 0 6px var(--accent)"></div>
+        <span>Voz lista</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Display de texto -->
+  <div id="text-display">
+    <span id="text-content"></span>
+    <span class="display-placeholder" id="placeholder">Empezá a escribir con los ojos...</span>
+  </div>
+
+  <!-- Sugerencias de palabras -->
+  <div id="suggestions">
+    <span style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;white-space:nowrap">Sugerencias:</span>
+  </div>
+
+  <!-- Teclado -->
+  <div id="keyboard-section">
+    <!-- Row 1 -->
+    <div class="keyboard-row" id="row1"></div>
+    <!-- Row 2 -->
+    <div class="keyboard-row" id="row2"></div>
+    <!-- Row 3 -->
+    <div class="keyboard-row" id="row3"></div>
+    <!-- Row 4 -->
+    <div class="keyboard-row" id="row4"></div>
+    <!-- Row 5 — especiales -->
+    <div class="keyboard-row" id="row5"></div>
+  </div>
+
+  <!-- Controles -->
+  <div id="controls">
+    <button class="ctrl-btn" onclick="clearText()">Borrar todo</button>
+    <button class="ctrl-btn speak-btn" onclick="speak()">▶ Hablar</button>
+    <button class="ctrl-btn" onclick="copyText()">Copiar</button>
+    <button class="ctrl-btn" onclick="changeDwellTime(-200)">Dwell −</button>
+    <button class="ctrl-btn" onclick="changeDwellTime(200)">Dwell +</button>
+  </div>
+</div>
+
+<script>
+// ─── CONFIG ──────────────────────────────────────────────────────────────────
+const ROWS = [
+  ['Q','W','E','R','T','Y','U','I','O','P'],
+  ['A','S','D','F','G','H','J','K','L','Ñ'],
+  ['Z','X','C','V','B','N','M','?','!','.'],
+  ['BORRAR','ESC','ESPACIO','ENTER'],
+];
+
+const COMMON_WORDS = {
+  'q': ['que','quien','quiero','cuando'],
+  'n': ['no','necesito','necesita'],
+  's': ['si','soy','se','su'],
+  'e': ['el','ella','es','esta','en'],
+  'p': ['por','para','pero','puedo'],
+  'm': ['me','mi','más','mucho'],
+  't': ['tengo','te','también','todo'],
+  'b': ['bien','bueno','busco'],
+  'h': ['hola','hay','hacer','help'],
+  'a': ['agua','ayuda','ahora','allá'],
+  'g': ['gracias','gusta','grande'],
+  'd': ['dolor','de','donde','día'],
+};
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let currentText = '';
+let inputMode = null;
+let dwellTime = 1200;
+let gazeActive = false;
+let micActive = false;
+let scanActive = false;
+let scanIndex = -1;
+let scanInterval = null;
+let allKeys = [];
+let gazingKey = null;
+let dwellTimer = null;
+let lastGazeKey = null;
+
+// ─── SETUP ───────────────────────────────────────────────────────────────────
+function selectMode(mode) {
+  inputMode = mode;
+  document.querySelectorAll('.setup-option').forEach(el => el.style.borderColor = '');
+  document.getElementById('opt-' + mode).style.borderColor = 'var(--accent)';
+  document.getElementById('start-btn').disabled = false;
+  document.getElementById('start-btn').style.opacity = '1';
+}
+
+function startApp() {
+  document.getElementById('setup-overlay').style.display = 'none';
+  buildKeyboard();
+  initMic();
+
+  if (inputMode === 'gaze') {
+    startGazeTracking();
+  } else if (inputMode === 'switch') {
+    startScanMode();
+    showModeToast('Barrido activo — ESPACIO para seleccionar');
+  } else {
+    startMouseMode();
+    showModeToast('Modo ratón activo');
+  }
+}
+
+// ─── TECLADO ─────────────────────────────────────────────────────────────────
+function buildKeyboard() {
+  const rows = ['row1','row2','row3','row4'];
+  ROWS.forEach((keys, i) => {
+    const row = document.getElementById(rows[i]);
+    keys.forEach(k => {
+      const btn = document.createElement('div');
+      btn.className = 'key' + (k.length > 1 ? ' wide' : '');
+      if (k === 'ESPACIO') btn.classList.add('wider');
+      if (k === 'ENTER') btn.classList.add('action');
+      if (k === 'BORRAR') btn.classList.add('danger-key');
+      btn.dataset.key = k;
+      btn.innerHTML = `${k}<div class="dwell-bar" id="dwell-${k}"></div>`;
+      btn.addEventListener('click', () => activateKey(k));
+      row.appendChild(btn);
+      allKeys.push(btn);
+    });
+  });
+}
+
+function activateKey(k) {
+  if (k === 'ESPACIO') currentText += ' ';
+  else if (k === 'BORRAR') currentText = currentText.slice(0,-1);
+  else if (k === 'ENTER') currentText += '\n';
+  else if (k === 'ESC') currentText = '';
+  else currentText += k.toLowerCase();
+
+  updateDisplay();
+  updateSuggestions();
+  triggerKeyFeedback(k);
+}
+
+function updateDisplay() {
+  const content = document.getElementById('text-content');
+  const ph = document.getElementById('placeholder');
+  content.textContent = currentText;
+  ph.style.display = currentText ? 'none' : 'block';
+}
+
+function triggerKeyFeedback(k) {
+  const btn = document.querySelector(`[data-key="${k}"]`);
+  if (!btn) return;
+  btn.classList.add('activated');
+  setTimeout(() => btn.classList.remove('activated'), 300);
+}
+
+// ─── SUGERENCIAS ─────────────────────────────────────────────────────────────
+function updateSuggestions() {
+  const sugg = document.getElementById('suggestions');
+  // Clear old buttons (keep label)
+  while (sugg.children.length > 1) sugg.removeChild(sugg.lastChild);
+
+  const words = getLastWord();
+  if (!words.length) return;
+  words.forEach(w => {
+    const btn = document.createElement('button');
+    btn.className = 'suggestion-btn';
+    btn.textContent = w;
+    btn.onclick = () => applySuggestion(w);
+    sugg.appendChild(btn);
+  });
+}
+
+function getLastWord() {
+  const parts = currentText.split(/\s+/);
+  const last = parts[parts.length - 1].toLowerCase();
+  if (!last) return [];
+  const firstChar = last[0];
+  const candidates = COMMON_WORDS[firstChar] || [];
+  return candidates.filter(w => w.startsWith(last)).slice(0, 4);
+}
+
+function applySuggestion(word) {
+  const parts = currentText.split(/\s+/);
+  parts[parts.length - 1] = word;
+  currentText = parts.join(' ') + ' ';
+  updateDisplay();
+  updateSuggestions();
+}
+
+// ─── TTS ─────────────────────────────────────────────────────────────────────
+function speak() {
+  if (!currentText.trim()) return;
+  const utt = new SpeechSynthesisUtterance(currentText);
+  utt.lang = 'es-ES';
+  utt.rate = 0.9;
+  utt.pitch = 1;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utt);
+  showToast('Hablando...');
+}
+
+// ─── UTILIDADES ──────────────────────────────────────────────────────────────
+function clearText() { currentText = ''; updateDisplay(); updateSuggestions(); }
+function copyText() {
+  navigator.clipboard.writeText(currentText).then(() => showToast('¡Copiado!'));
+}
+function changeDwellTime(delta) {
+  dwellTime = Math.max(400, Math.min(3000, dwellTime + delta));
+  showToast(`Tiempo de mirada: ${dwellTime}ms`);
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+function showModeToast(msg) {
+  const b = document.getElementById('mode-badge');
+  b.textContent = msg;
+  b.classList.add('visible');
+  setTimeout(() => b.classList.remove('visible'), 3000);
+}
+
+// ─── MOUSE MODE ───────────────────────────────────────────────────────────────
+function startMouseMode() {
+  allKeys.forEach(key => {
+    key.addEventListener('mouseenter', () => startDwell(key));
+    key.addEventListener('mouseleave', () => cancelDwell(key));
+  });
+}
+
+function startDwell(el) {
+  if (dwellTimer) return;
+  const bar = el.querySelector('.dwell-bar');
+  el.classList.add('gazing');
+  bar.style.transition = `width ${dwellTime}ms linear`;
+  bar.style.width = '100%';
+  dwellTimer = setTimeout(() => {
+    activateKey(el.dataset.key);
+    cancelDwell(el);
+  }, dwellTime);
+}
+
+function cancelDwell(el) {
+  clearTimeout(dwellTimer);
+  dwellTimer = null;
+  if (!el) return;
+  el.classList.remove('gazing');
+  const bar = el.querySelector('.dwell-bar');
+  bar.style.transition = 'width 0.1s linear';
+  bar.style.width = '0%';
+}
+
+// ─── GAZE MODE ────────────────────────────────────────────────────────────────
+function startGazeTracking() {
+  showToast('Iniciando cámara...');
+  const cursor = document.getElementById('gaze-cursor');
+  cursor.style.display = 'block';
+
+  try {
+    webgazer.setGazeListener((data) => {
+      if (!data) return;
+      cursor.style.left = data.x + 'px';
+      cursor.style.top = data.y + 'px';
+
+      const el = document.elementFromPoint(data.x, data.y);
+      const keyEl = el ? el.closest('.key') : null;
+
+      if (keyEl && keyEl !== lastGazeKey) {
+        if (lastGazeKey) cancelDwell(lastGazeKey);
+        lastGazeKey = keyEl;
+        startDwell(keyEl);
+      } else if (!keyEl && lastGazeKey) {
+        cancelDwell(lastGazeKey);
+        lastGazeKey = null;
+      }
+    }).begin();
+
+    webgazer.showVideoPreview(true).showPredictionPoints(false);
+    document.getElementById('pill-tts').querySelector('.dot').style.background = 'var(--accent)';
+    showToast('Cámara activa — mirá las teclas para escribir');
+    gazeActive = true;
+    document.getElementById('pill-mic').classList.add('active');
+  } catch(e) {
+    showToast('No se pudo iniciar el eye tracking');
+    console.error(e);
+    startMouseMode(); // fallback
+  }
+}
+
+// ─── SCAN / SWITCH MODE ────────────────────────────────────────────────────────
+function startScanMode() {
+  scanActive = true;
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      if (scanIndex >= 0) activateKey(allKeys[scanIndex].dataset.key);
+    }
+  });
+
+  // Also: breath via mic triggers selection
+  scanInterval = setInterval(() => {
+    if (scanIndex >= 0) allKeys[scanIndex].classList.remove('gazing');
+    scanIndex = (scanIndex + 1) % allKeys.length;
+    allKeys[scanIndex].classList.add('gazing');
+  }, 800);
+}
+
+// ─── MIC / SOPLO ──────────────────────────────────────────────────────────────
+function initMic() {
+  navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    .then(stream => {
+      const ctx = new AudioContext();
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      src.connect(analyser);
+
+      const buf = new Uint8Array(analyser.frequencyBinCount);
+      let blowing = false;
+      let blowCooldown = false;
+
+      const indicator = document.getElementById('breath-indicator');
+
+      function check() {
+        analyser.getByteFrequencyData(buf);
+        const avg = buf.reduce((a,b) => a+b, 0) / buf.length;
+
+        if (avg > 28 && !blowing && !blowCooldown) {
+          blowing = true;
+          blowCooldown = true;
+          indicator.classList.add('active');
+
+          // En modo barrido: selecciona la tecla actual
+          if (scanActive && scanIndex >= 0) {
+            activateKey(allKeys[scanIndex].dataset.key);
+          }
+          // En modo mouse con dwell: confirmar selección
+          if (inputMode === 'mouse' && dwellTimer) {
+            clearTimeout(dwellTimer);
+            dwellTimer = null;
+            if (lastGazeKey) activateKey(lastGazeKey.dataset.key);
+          }
+
+          setTimeout(() => { blowing = false; indicator.classList.remove('active'); }, 300);
+          setTimeout(() => { blowCooldown = false; }, 800);
+        }
+        requestAnimationFrame(check);
+      }
+      check();
+
+      micActive = true;
+      document.getElementById('pill-mic').classList.add('active');
+    })
+    .catch(() => {
+      showToast('Micrófono no disponible');
+    });
+}
+
+function toggleMic() {
+  // placeholder para futuras opciones
+  showToast(micActive ? 'Micrófono activo' : 'Micrófono no disponible');
+}
+
+// ─── AUTO-SPEAK on ENTER ──────────────────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && inputMode !== 'switch') speak();
+});
+</script>
+</body>
+</html>
