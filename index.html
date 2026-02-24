@@ -541,9 +541,6 @@ let scanActive = false;
 let scanIndex = -1;
 let scanInterval = null;
 let allKeys = [];
-let gazingKey = null;
-let dwellTimer = null;
-let lastGazeKey = null;
 
 // ─── SETUP ───────────────────────────────────────────────────────────────────
 function selectMode(mode) {
@@ -685,34 +682,69 @@ function showModeToast(msg) {
   setTimeout(() => b.classList.remove('visible'), 3000);
 }
 
-// ─── MOUSE MODE ───────────────────────────────────────────────────────────────
-function startMouseMode() {
-  allKeys.forEach(key => {
-    key.addEventListener('mouseenter', () => startDwell(key));
-    key.addEventListener('mouseleave', () => cancelDwell(key));
-  });
-}
+// ─── DWELL ENGINE (universal - mouse, touch, gaze) ────────────────────────────
+let dwellEl = null;
+let dwellStart = null;
+let dwellRAF = null;
 
 function startDwell(el) {
-  if (dwellTimer) return;
-  const bar = el.querySelector('.dwell-bar');
+  if (dwellEl === el) return; // ya estamos en esta tecla
+  cancelDwell();
+
+  dwellEl = el;
+  dwellStart = performance.now();
   el.classList.add('gazing');
-  bar.style.transition = `width ${dwellTime}ms linear`;
-  bar.style.width = '100%';
-  dwellTimer = setTimeout(() => {
-    activateKey(el.dataset.key);
-    cancelDwell(el);
-  }, dwellTime);
+
+  function tick(now) {
+    if (dwellEl !== el) return;
+    const elapsed = now - dwellStart;
+    const pct = Math.min(100, (elapsed / dwellTime) * 100);
+    const bar = el.querySelector('.dwell-bar');
+    if (bar) bar.style.width = pct + '%';
+
+    if (elapsed >= dwellTime) {
+      activateKey(el.dataset.key);
+      cancelDwell();
+      // pequeño cooldown para no activar dos veces
+      setTimeout(() => { dwellEl = null; }, 300);
+    } else {
+      dwellRAF = requestAnimationFrame(tick);
+    }
+  }
+  dwellRAF = requestAnimationFrame(tick);
 }
 
-function cancelDwell(el) {
-  clearTimeout(dwellTimer);
-  dwellTimer = null;
-  if (!el) return;
-  el.classList.remove('gazing');
-  const bar = el.querySelector('.dwell-bar');
-  bar.style.transition = 'width 0.1s linear';
-  bar.style.width = '0%';
+function cancelDwell() {
+  if (dwellRAF) cancelAnimationFrame(dwellRAF);
+  dwellRAF = null;
+  if (dwellEl) {
+    dwellEl.classList.remove('gazing');
+    const bar = dwellEl.querySelector('.dwell-bar');
+    if (bar) bar.style.width = '0%';
+    dwellEl = null;
+  }
+}
+
+// ─── MOUSE MODE ───────────────────────────────────────────────────────────────
+function startMouseMode() {
+  // Mouse
+  document.addEventListener('mousemove', (e) => {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const keyEl = el ? el.closest('.key') : null;
+    if (keyEl) startDwell(keyEl);
+    else cancelDwell();
+  });
+
+  // Touch (para celular)
+  document.addEventListener('touchmove', (e) => {
+    const t = e.touches[0];
+    const el = document.elementFromPoint(t.clientX, t.clientY);
+    const keyEl = el ? el.closest('.key') : null;
+    if (keyEl) startDwell(keyEl);
+    else cancelDwell();
+  }, { passive: true });
+
+  document.addEventListener('touchend', cancelDwell);
 }
 
 // ─── GAZE MODE ────────────────────────────────────────────────────────────────
@@ -730,14 +762,8 @@ function startGazeTracking() {
       const el = document.elementFromPoint(data.x, data.y);
       const keyEl = el ? el.closest('.key') : null;
 
-      if (keyEl && keyEl !== lastGazeKey) {
-        if (lastGazeKey) cancelDwell(lastGazeKey);
-        lastGazeKey = keyEl;
-        startDwell(keyEl);
-      } else if (!keyEl && lastGazeKey) {
-        cancelDwell(lastGazeKey);
-        lastGazeKey = null;
-      }
+      if (keyEl) startDwell(keyEl);
+      else cancelDwell();
     }).begin();
 
     webgazer.showVideoPreview(true).showPredictionPoints(false);
@@ -799,11 +825,11 @@ function initMic() {
           if (scanActive && scanIndex >= 0) {
             activateKey(allKeys[scanIndex].dataset.key);
           }
-          // En modo mouse con dwell: confirmar selección
-          if (inputMode === 'mouse' && dwellTimer) {
-            clearTimeout(dwellTimer);
-            dwellTimer = null;
-            if (lastGazeKey) activateKey(lastGazeKey.dataset.key);
+          // En modo mouse con dwell: confirmar selección inmediata
+          if ((inputMode === 'mouse' || inputMode === 'gaze') && dwellEl) {
+            const el = dwellEl;
+            cancelDwell();
+            activateKey(el.dataset.key);
           }
 
           setTimeout(() => { blowing = false; indicator.classList.remove('active'); }, 300);
